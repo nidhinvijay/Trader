@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>BTC LTP Tester (Delta + Manual)</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        sans-serif;
+      background: radial-gradient(circle at top, #0f172a, #020617);
+      color: #e5e7eb;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .card {
+      background: #020617;
+      border-radius: 16px;
+      padding: 24px 28px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      width: 360px;
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin: 0 0 4px 0;
+      text-align: center;
+    }
+    .subtitle {
+      text-align: center;
+      font-size: 0.85rem;
+      color: #9ca3af;
+      margin-bottom: 16px;
+    }
+    .price {
+      text-align: center;
+      font-size: 2.4rem;
+      font-weight: 700;
+      margin: 8px 0;
+    }
+    .price span {
+      font-size: 1rem;
+      color: #9ca3af;
+      margin-left: 4px;
+    }
+    .meta {
+      text-align: center;
+      font-size: 0.85rem;
+      color: #9ca3af;
+      margin-bottom: 20px;
+      line-height: 1.4;
+    }
+    .meta div {
+      margin: 2px 0;
+    }
+    .badge-row {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid #374151;
+      background: #020617;
+      color: #e5e7eb;
+    }
+    .badge.mode-api {
+      border-color: #22c55e;
+      color: #bbf7d0;
+    }
+    .badge.mode-manual {
+      border-color: #f97316;
+      color: #fed7aa;
+    }
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+    }
+    button {
+      flex: 1;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: transform 0.08s ease, box-shadow 0.08s ease, opacity 0.1s ease;
+    }
+    button.primary {
+      background: #2563eb;
+      color: #e5e7eb;
+      box-shadow: 0 8px 18px rgba(37, 99, 235, 0.4);
+    }
+    button.secondary {
+      background: #111827;
+      color: #e5e7eb;
+      border: 1px solid #374151;
+    }
+    button.danger {
+      background: #b91c1c;
+      color: #fee2e2;
+    }
+    button:disabled {
+      opacity: 0.4;
+      cursor: default;
+      box-shadow: none;
+    }
+    button:not(:disabled):active {
+      transform: translateY(1px);
+      box-shadow: none;
+    }
+    .status {
+      margin-top: 14px;
+      font-size: 0.8rem;
+      color: #6ee7b7;
+      text-align: center;
+      min-height: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>BTC LTP Tester</h1>
+    <div class="subtitle">Delta (API) ↔ Manual price control</div>
+
+    <div class="price" id="priceDisplay">--</div>
+
+    <div class="badge-row">
+      <span class="badge" id="modeBadge">Mode: --</span>
+      <span class="badge" id="directionBadge">Direction: --</span>
+    </div>
+
+    <div class="meta">
+      <div id="symbolDisplay">Symbol: --</div>
+      <div id="extraInfo"></div>
+    </div>
+
+    <div class="controls">
+      <div class="row">
+        <button id="toggleModeBtn" class="primary">Loading...</button>
+      </div>
+      <div class="row">
+        <button id="priceUpBtn" class="secondary">Price Up ▲</button>
+        <button id="priceDownBtn" class="secondary">Price Down ▼</button>
+      </div>
+      <div class="row">
+        <button id="directionNoneBtn" class="danger">Stop Movement</button>
+      </div>
+    </div>
+
+    <div class="status" id="status">Initializing...</div>
+  </div>
+
+  <script>
+    const priceDisplay = document.getElementById("priceDisplay");
+    const modeBadge = document.getElementById("modeBadge");
+    const directionBadge = document.getElementById("directionBadge");
+    const symbolDisplay = document.getElementById("symbolDisplay");
+    const extraInfo = document.getElementById("extraInfo");
+    const statusEl = document.getElementById("status");
+
+    const toggleModeBtn = document.getElementById("toggleModeBtn");
+    const priceUpBtn = document.getElementById("priceUpBtn");
+    const priceDownBtn = document.getElementById("priceDownBtn");
+    const directionNoneBtn = document.getElementById("directionNoneBtn");
+
+    let flag = 1; // 1 = API, 0 = MANUAL
+    let manualDirection = "none";
+    let currentPrice = null;
+    let symbol = "BTCUSD";
+
+    function setStatus(msg, isError = false) {
+      statusEl.textContent = msg;
+      statusEl.style.color = isError ? "#fca5a5" : "#6ee7b7";
+    }
+
+    function updateUI() {
+      const modeText = flag === 1 ? "API (Delta)" : "MANUAL";
+
+      modeBadge.textContent = "Mode: " + modeText;
+      modeBadge.classList.remove("mode-api", "mode-manual");
+      modeBadge.classList.add(flag === 1 ? "mode-api" : "mode-manual");
+
+      directionBadge.textContent = "Direction: " + manualDirection;
+      directionBadge.style.opacity = flag === 1 ? 0.6 : 1;
+
+      toggleModeBtn.textContent =
+        flag === 1 ? "Switch to MANUAL" : "Switch to API";
+
+      // Enable manual controls only in MANUAL mode
+      const manualEnabled = flag === 0;
+      priceUpBtn.disabled = !manualEnabled;
+      priceDownBtn.disabled = !manualEnabled;
+      directionNoneBtn.disabled = !manualEnabled;
+
+      if (currentPrice != null) {
+        priceDisplay.textContent = currentPrice.toFixed(2);
+      } else {
+        priceDisplay.textContent = "--";
+      }
+
+      symbolDisplay.textContent = "Symbol: " + symbol;
+      extraInfo.textContent =
+        flag === 1
+          ? "Price from Delta (live)."
+          : "Price moves every second in chosen direction.";
+    }
+
+    async function fetchMode() {
+      try {
+        const res = await fetch("/mode");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        flag = data.flag;
+        manualDirection = data.manualDirection || "none";
+        updateUI();
+      } catch (err) {
+        setStatus("Failed to fetch mode: " + err.message, true);
+      }
+    }
+
+    async function fetchPrice() {
+      try {
+        const res = await fetch("/btc-price");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        if (data.price != null) {
+          currentPrice = Number(data.price);
+        }
+        manualDirection = data.manualDirection || manualDirection;
+        const modeText = data.mode || (flag === 1 ? "API" : "MANUAL");
+        setStatus("Last update from " + modeText);
+        updateUI();
+      } catch (err) {
+        setStatus("Failed to fetch price: " + err.message, true);
+      }
+    }
+
+    // Toggle between API and MANUAL
+    toggleModeBtn.addEventListener("click", async () => {
+      try {
+        const newFlag = flag === 1 ? 0 : 1;
+        const res = await fetch("/mode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ flag: newFlag })
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        flag = data.flag;
+        manualDirection = data.manualDirection || "none";
+        setStatus("Mode switched to " + (flag === 1 ? "API" : "MANUAL"));
+        updateUI();
+      } catch (err) {
+        setStatus("Failed to switch mode: " + err.message, true);
+      }
+    });
+
+    // Set manual direction to UP
+    priceUpBtn.addEventListener("click", async () => {
+      try {
+        const res = await fetch("/manual-direction", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ direction: "up" })
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        manualDirection = data.manualDirection;
+        setStatus("Manual direction set to UP");
+        updateUI();
+      } catch (err) {
+        setStatus("Failed to set direction: " + err.message, true);
+      }
+    });
+
+    // Set manual direction to DOWN
+    priceDownBtn.addEventListener("click", async () => {
+      try {
+        const res = await fetch("/manual-direction", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ direction: "down" })
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        manualDirection = data.manualDirection;
+        setStatus("Manual direction set to DOWN");
+        updateUI();
+      } catch (err) {
+        setStatus("Failed to set direction: " + err.message, true);
+      }
+    });
+
+    // Reset direction to NONE
+    directionNoneBtn.addEventListener("click", async () => {
+      try {
+        const res = await fetch("/manual-direction", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ direction: "none" })
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        manualDirection = data.manualDirection;
+        setStatus("Manual direction stopped");
+        updateUI();
+      } catch (err) {
+        setStatus("Failed to set direction: " + err.message, true);
+      }
+    });
+
+    // Initial load
+    (async function init() {
+      setStatus("Loading mode and price...");
+      await fetchMode();
+      await fetchPrice();
+      // Refresh price every 2 seconds
+      setInterval(fetchPrice, 2000);
+    })();
+  </script>
+</body>
+</html>
