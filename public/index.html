@@ -36,16 +36,27 @@
       color: #9ca3af;
       margin-bottom: 16px;
     }
-    .price {
-      text-align: center;
-      font-size: 2.4rem;
-      font-weight: 700;
-      margin: 8px 0;
+    .price-row {
+      display: flex;
+      gap: 12px;
+      margin: 8px 0 4px 0;
     }
-    .price span {
-      font-size: 1rem;
+    .price-box {
+      flex: 1;
+      background: #020617;
+      border-radius: 12px;
+      padding: 10px 8px;
+      text-align: center;
+      border: 1px solid #1f2937;
+    }
+    .price-label {
+      font-size: 0.75rem;
       color: #9ca3af;
-      margin-left: 4px;
+      margin-bottom: 4px;
+    }
+    .price {
+      font-size: 1.7rem;
+      font-weight: 700;
     }
     .meta {
       text-align: center;
@@ -138,9 +149,18 @@
 <body>
   <div class="card">
     <h1>BTC LTP Tester</h1>
-    <div class="subtitle">Delta (API) ↔ Manual price control</div>
+    <div class="subtitle">Delta WS vs HTTP API</div>
 
-    <div class="price" id="priceDisplay">--</div>
+    <div class="price-row">
+      <div class="price-box">
+        <div class="price-label">WebSocket / MANUAL</div>
+        <div class="price" id="priceDisplay">--</div>
+      </div>
+      <div class="price-box">
+        <div class="price-label">HTTP API (delta-rest-client)</div>
+        <div class="price" id="httpPriceDisplay">--</div>
+      </div>
+    </div>
 
     <div class="badge-row">
       <span class="badge" id="modeBadge">Mode: --</span>
@@ -170,6 +190,7 @@
 
   <script>
     const priceDisplay = document.getElementById("priceDisplay");
+    const httpPriceDisplay = document.getElementById("httpPriceDisplay");
     const modeBadge = document.getElementById("modeBadge");
     const directionBadge = document.getElementById("directionBadge");
     const symbolDisplay = document.getElementById("symbolDisplay");
@@ -185,6 +206,8 @@
     let manualDirection = "none";
     let currentPrice = null;
     let symbol = "BTCUSD";
+    let compareWsPrice = null;
+    let compareHttpPrice = null;
 
     function setStatus(msg, isError = false) {
       statusEl.textContent = msg;
@@ -210,17 +233,20 @@
       priceDownBtn.disabled = !manualEnabled;
       directionNoneBtn.disabled = !manualEnabled;
 
-      if (currentPrice != null) {
-        priceDisplay.textContent = currentPrice.toFixed(2);
+      priceDisplay.textContent =
+        currentPrice != null ? currentPrice.toFixed(2) : "--";
+
+      if (compareHttpPrice != null) {
+        httpPriceDisplay.textContent = compareHttpPrice.toFixed(2);
       } else {
-        priceDisplay.textContent = "--";
+        httpPriceDisplay.textContent = "--";
       }
 
       symbolDisplay.textContent = "Symbol: " + symbol;
       extraInfo.textContent =
         flag === 1
-          ? "Price from Delta (live)."
-          : "Price moves every second in chosen direction.";
+          ? "WS from Delta socket; HTTP via REST client."
+          : "Left: manual/WebSocket, Right: HTTP API snapshot.";
     }
 
     async function fetchMode() {
@@ -250,6 +276,23 @@
         updateUI();
       } catch (err) {
         setStatus("Failed to fetch price: " + err.message, true);
+      }
+    }
+
+    async function fetchCompare() {
+      try {
+        const res = await fetch("/btc-price-compare");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        symbol = data.symbol || symbol;
+        compareWsPrice =
+          data.wsPrice != null ? Number(data.wsPrice) : compareWsPrice;
+        compareHttpPrice =
+          data.httpPrice != null ? Number(data.httpPrice) : compareHttpPrice;
+        updateUI();
+      } catch (err) {
+        // comparison is optional; just log to console
+        console.warn("Failed to fetch comparison:", err);
       }
     }
 
@@ -331,9 +374,12 @@
     (async function init() {
       setStatus("Loading mode and price...");
       await fetchMode();
-      await fetchPrice();
+      await Promise.all([fetchPrice(), fetchCompare()]);
       // Refresh price every 2 seconds
-      setInterval(fetchPrice, 2000);
+      setInterval(() => {
+        fetchPrice();
+        fetchCompare();
+      }, 2000);
     })();
   </script>
 </body>

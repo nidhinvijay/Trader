@@ -4,6 +4,7 @@ import express from "express";
 import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { startDeltaFeed } from "./deltaFeed.js";
+import { fetchDeltaRestPrice } from "./deltaRest.js";
 import logger from "./logger.js";
 
 // Basic types so TS understands the shapes
@@ -29,7 +30,7 @@ const INITIAL_MODE = (process.env.FEED_MODE || "api").toLowerCase();
 // 1 = API (Delta), 0 = MANUAL
 let flag: ModeFlag = INITIAL_MODE === "manual" ? 0 : 1;
 let manualDirection: ManualDirection = "none"; // "up" | "down" | "none"
-let currentPrice: number | null = null;        // latest LTP (from Delta or manual)
+let currentPrice: number | null = null;        // latest LTP (from Delta WS or manual)
 let manualTimer: any = null;
 let deltaWs: WebSocket | null = null;
 
@@ -229,6 +230,24 @@ app.get("/btc-price", (req, res) => {
     });
   } catch (err) {
     logger.error("Error in /btc-price route: " + err.message);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// GET /btc-price-compare → returns WS price (this app) and HTTP API price (delta-rest-client)
+app.get("/btc-price-compare", async (req, res) => {
+  try {
+    const restPrice = await fetchDeltaRestPrice(SYMBOL);
+
+    res.json({
+      symbol: SYMBOL,
+      wsPrice: currentPrice,
+      httpPrice: restPrice,
+      mode: flag === 1 ? "API" : "MANUAL",
+      manualDirection,
+    });
+  } catch (err: any) {
+    logger.error("Error in /btc-price-compare route: " + err.message);
     res.status(500).json({ error: "Internal server error" });
   }
 });
