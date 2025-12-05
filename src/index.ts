@@ -1,10 +1,21 @@
-// src/index.js
+// src/index.ts
 import dotenv from "dotenv";
 import express from "express";
 import http from "http";
-import { WebSocketServer } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import { startDeltaFeed } from "./deltaFeed.js";
 import logger from "./logger.js";
+
+// Basic types so TS understands the shapes
+type ModeFlag = 0 | 1;
+type ManualDirection = "up" | "down" | "none";
+
+interface Tick {
+  symbol: string;
+  price: number;
+  time: number;
+  source: string;
+}
 
 dotenv.config();
 
@@ -16,17 +27,30 @@ const PORT = Number(process.env.PORT || 3000);
 const INITIAL_MODE = (process.env.FEED_MODE || "api").toLowerCase();
 
 // 1 = API (Delta), 0 = MANUAL
-let flag = INITIAL_MODE === "manual" ? 0 : 1;
-let manualDirection = "none"; // "up" | "down" | "none"
-let currentPrice = null;      // latest LTP (from Delta or manual)
-let manualTimer = null;
-let deltaWs = null;
+let flag: ModeFlag = INITIAL_MODE === "manual" ? 0 : 1;
+let manualDirection: ManualDirection = "none"; // "up" | "down" | "none"
+let currentPrice: number | null = null;        // latest LTP (from Delta or manual)
+let manualTimer: any = null;
+let deltaWs: WebSocket | null = null;
 
 const app = express();
 
 // Serve sir's index.html from /public
 app.use(express.static("public"));
 app.use(express.json());
+
+// Log every HTTP request (method, URL, status, duration)
+app.use((req, res, next) => {
+  const start = Date.now();
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    logger.info(`HTTP ${req.method} ${req.originalUrl} -> ${res.statusCode} in ${duration}ms`);
+  });
+
+  next();
+});
+
 
 // -------------------- Helpers for modes --------------------
 
@@ -88,7 +112,7 @@ function stopManualLoop() {
 }
 
 // Called every time Delta gives a tick
-function handleDeltaTick(tick) {
+function handleDeltaTick(tick: Tick) {
   // Only trust Delta price in API mode
   if (flag === 1) {
     currentPrice = tick.price;
@@ -101,7 +125,7 @@ function handleDeltaTick(tick) {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ticks" });
 
-function broadcastTick(tick) {
+function broadcastTick(tick: Tick) {
   const data = JSON.stringify({
     type: "tick",
     symbol: tick.symbol,
@@ -118,7 +142,7 @@ function broadcastTick(tick) {
   });
 }
 
-wss.on("connection", (ws) => {
+wss.on("connection", (ws: WebSocket) => {
   logger.info("WebSocket client connected");
 
   ws.send(JSON.stringify({
@@ -214,22 +238,30 @@ app.post("/manual-direction", (req, res) => {
   try {
     const { direction } = req.body;
 
+    // Validate direction
     if (!["up", "down", "none"].includes(direction)) {
+      logger.warn("Invalid manual direction", { direction });
       return res.status(400).json({
         error: "direction must be 'up', 'down' or 'none'",
       });
     }
 
+    // Log before + after
+    const oldDirection = manualDirection;
     manualDirection = direction;
 
-    res.json({
-      manualDirection,
+    logger.info("Manual direction changed", {
+      from: oldDirection,
+      to: manualDirection,
     });
+
+    res.json({ manualDirection });
   } catch (err) {
-    logger.error("Error in /manual-direction route: " + err.message);
+    logger.error("Error in /manual-direction", { message: err.message });
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
 
 // -------------------- Start server + initial mode --------------------
 

@@ -1,8 +1,18 @@
-// src/deltaFeed.js
+// src/deltaFeed.ts
 import WebSocket from "ws";
 import logger from "./logger.js";
 
-export function startDeltaFeed(symbol, onTick) {
+// One simple "shape" for the tick we send back
+interface Tick {
+  symbol: string;
+  price: number;
+  time: number;
+  source: string;
+}
+
+// symbol = "BTCUSD", "ETHUSD", etc.
+// onTick = function that will receive the latest price
+export function startDeltaFeed(symbol: string, onTick: (tick: Tick) => void) {
   const url = "wss://socket.india.delta.exchange";
 
   logger.info(`Connecting to Delta WebSocket: ${url}`);
