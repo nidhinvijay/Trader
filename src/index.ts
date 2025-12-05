@@ -61,7 +61,7 @@ function startDeltaMode() {
   stopManualLoop();
 
   // Only start if not already running
-  if (!deltaWs) {
+  if (!deltaWs && process.env.NODE_ENV !== "test") {
     deltaWs = startDeltaFeed(SYMBOL, handleDeltaTick);
   }
 }
@@ -265,14 +265,26 @@ app.post("/manual-direction", (req, res) => {
 
 // -------------------- Start server + initial mode --------------------
 
-server.listen(PORT, () => {
-  logger.info(`Server running at http://localhost:${PORT}`);
-  logger.info(`Symbol: ${SYMBOL}`);
-  logger.info(`Initial mode: ${flag === 1 ? "API (Delta)" : "MANUAL"}`);
+export { app, server };
 
-  if (flag === 1) {
-    startDeltaMode();
-  } else {
-    startManualLoop();
-  }
-});
+export function startServer() {
+  server.listen(PORT, () => {
+    logger.info(`Server running at http://localhost:${PORT}`);
+    logger.info(`Symbol: ${SYMBOL}`);
+    logger.info(`Initial mode: ${flag === 1 ? "API (Delta)" : "MANUAL"}`);
+
+    // In tests we don't start any background loops or WebSockets
+    if (process.env.NODE_ENV !== "test") {
+      if (flag === 1) {
+        startDeltaMode();
+      } else {
+        startManualLoop();
+      }
+    }
+  });
+}
+
+// In normal run (not tests), start immediately
+if (process.env.NODE_ENV !== "test") {
+  startServer();
+}
