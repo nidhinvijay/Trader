@@ -1,15 +1,16 @@
 // src/deltaFeed.js
 import WebSocket from "ws";
+import logger from "./logger.js";
 
 export function startDeltaFeed(symbol, onTick) {
   const url = "wss://socket.india.delta.exchange";
 
-  console.log("Connecting to Delta WebSocket:", url);
+  logger.info(`Connecting to Delta WebSocket: ${url}`);
 
   const ws = new WebSocket(url);
 
   ws.on("open", () => {
-    console.log("✅ Connected to Delta WS");
+    logger.info("Connected to Delta WS");
 
     const upperSymbol = symbol.toUpperCase();
 
@@ -26,7 +27,7 @@ export function startDeltaFeed(symbol, onTick) {
     };
 
     ws.send(JSON.stringify(sub));
-    console.log("📡 Subscribed to:", upperSymbol);
+    logger.info(`Subscribed to: ${upperSymbol}`);
   });
 
   ws.on("message", (data) => {
@@ -34,7 +35,7 @@ export function startDeltaFeed(symbol, onTick) {
       const msg = JSON.parse(data.toString());
 
       // Uncomment this to debug incoming messages:
-      // console.log("RAW MSG:", msg);
+      // logger.info(`RAW MSG: ${JSON.stringify(msg)}`);
 
       // Delta ticker messages DO NOT have "type" or "payload"
       // They come as direct objects with fields like:
@@ -58,16 +59,16 @@ export function startDeltaFeed(symbol, onTick) {
       });
 
     } catch (err) {
-      console.log("Error parsing Delta msg:", err.message);
+      logger.error(`Error parsing Delta msg: ${err.message}`);
     }
   });
 
   ws.on("close", () => {
-    console.log("❌ Delta WebSocket closed");
+    logger.warn("Delta WebSocket closed");
   });
 
   ws.on("error", (err) => {
-    console.log("⚠️ Delta WebSocket error:", err.message);
+    logger.error(`Delta WebSocket error: ${err.message}`);
   });
 
   return ws;
